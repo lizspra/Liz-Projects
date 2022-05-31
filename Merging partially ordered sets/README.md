@@ -8,7 +8,7 @@ Some data can come equipped with multiple different orderings or partial orderin
 
 poset compatibility.py gives a measure for how compatible or not a collection of orderings are on the same underlying set. 
 
-See for Order_poset_merging.pdf an outline of this question mathematical and some small examples, as well as some preliminary general results.
+Order_poset_merging.pdf outlines of this question mathematically and gives some small examples, as well as some preliminary general results.
 
 
 ## Authors
