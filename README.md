@@ -13,7 +13,7 @@ Some packages used: forecast, plyr, tsibble, dplyr, ggplot2
 
 A project I worked on with the Pacific Northwest National Lab to determind a measure for how similar or different two data orderings are. 
 
-Language utilized: python
+Language utilized: python\\
 Some packages used: networkx, numpy
 
 ## Forecasting popular names
