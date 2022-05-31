@@ -1,0 +1,99 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+
+#TBATS Model
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(TTR)
+library(imputeTS)
+library(forecast)
+```
+
+
+```{r}
+#read in the interpolated data
+data <- readr::read_csv(file = 'data/data_shipping_ca_az_or_interpolated.csv')
+```
+
+
+```{r}
+# filter to just refridered trucks lane FRS to CHI
+df_R_IL <- data %>%
+  filter(data$Mode == "R", data$DRegionDAT == "IL_CHI", data$ORegionDAT == "CA_FRS") 
+
+tail(df_R_IL)
+```
+
+```{r}
+#convert df_R_IL to time series to use autolayer when plotting later
+ts <- ts(df_R_IL$approx_cost,frequency = 52,start = c(2017,01),end = c(2021,26))
+
+ts
+```
+
+```{r}
+#Here we want to use imputeTS. This imputation algorithm fills in all missing values in a time series. 
+ts= na_interpolation(ts)
+ts
+```
+
+
+```{r, eval = FALSE}
+#create tbats model and forecast
+tbats_mod <- tbats(train_1)
+tbats_for = forecast(tbats_mod, h=12)
+```
+
+```{r, eval = FALSE}
+#plot forecast with original data autolayer
+autoplot(tbats_for) + 
+  autolayer(ts, color = "BLACK") +
+  labs(
+    y = "Approximate Cost",
+    title = "Forecasts for weekly cost (CA_FRS to IL_CHI)"
+  )
+```
+
+
+```{r, eval = FALSE}
+#here we can summarize to see MAPE
+summary(tbats_for)
+```
+
+```{r}
+#create forecasting function
+tbats_for <- function(x, h) {
+  forecast(tbats(x), h =h)
+}
+```
+
+
+```{r}
+#CV of time series using our tbats forecast function
+cross_validation <- tsCV(ts, forecastfunction = tbats_for, h = 12, initial = 155)
+
+cross_validation[,12]
+```
+
+```{r} 
+summary(cross_validation)
+```
+```{r} 
+#calc error stats for when h=12 by writing forecast and findind its accuracy
+accuracy(cross_validation[,12]+ts, ts)
+
+```
+
+

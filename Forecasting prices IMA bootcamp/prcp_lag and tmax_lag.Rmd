@@ -1,0 +1,46 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r}
+#load packages
+library(readr)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(tsibble)
+library(fable)
+library(zoo)
+```
+
+
+```{r}
+df <- read_csv(file = "data/data_shipping_weather_interpolated_ca_az_or.csv")
+```
+
+
+
+```{r}
+#interpolate the prcp data
+df <- df %>%
+  mutate(prcp = na.approx(prcp)) %>%
+  mutate(tmax = na.approx(tmax))
+
+#sum up the prcp over the last n weeks
+#find the percipitation with a lag of n weeks, here we chose 12 weeks
+#cumsum(vector)= for all i, take cumulative sum of first i entries, outputting a vector of same length
+df <- df %>%
+  group_by(Mode,ORegionDAT, DRegionDAT) %>%
+  mutate(prcp_lag12 = (cumsum(prcp)-lag(cumsum(prcp), n=12))/12) %>%
+  mutate(tmax_lag12 = (cumsum(tmax)-lag(cumsum(tmax), n=12))/12) %>%
+  mutate(prcp_lag8 = (cumsum(prcp)-lag(cumsum(prcp), n=8))/8) %>%
+  mutate(tmax_lag8 = (cumsum(tmax)-lag(cumsum(tmax), n=8))/8) %>%
+  mutate(prcp_lag4 = (cumsum(prcp)-lag(cumsum(prcp), n=4))/4) %>%
+  mutate(tmax_lag4 = (cumsum(tmax)-lag(cumsum(tmax), n=4))/4) %>%
+  mutate(prcp_lag2 = (cumsum(prcp)-lag(cumsum(prcp), n=2))/2) %>%
+  mutate(tmax_lag2 = (cumsum(tmax)-lag(cumsum(tmax), n=2))/2)
+
+write.csv(df, file="data/ca_az_or_weather_lag.csv")
+
+```

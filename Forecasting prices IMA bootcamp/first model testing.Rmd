@@ -1,0 +1,155 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+# Initial models for time series
+
+#Read Data and Basic Plots
+```{r}
+
+
+#Load packages
+library(readr)
+library(fpp3) #this imports a few things including dplyr, tidyr,ggplot2, and more
+library(tsibble)
+library(forecast)
+```
+
+```{r}
+#read in cvs as dataframe and convert to time series
+#key = c(Mode,ORegionDAT, DRegionDAT) since these 4 categories each have one observation at each time
+df <- readr::read_csv(file = "data_shipping_and_weather_joined_cleaned.csv") %>% mutate(yw = yearweek(yw)) %>% as_tsibble(key = c(Mode,ORegionDAT, DRegionDAT), index = yw)
+
+head(df)
+```
+```{r}
+autoplot(df, sanitized_cost)
+```
+
+```{r}
+#seasonal plot for cost
+gg_season(df, y = sanitized_cost, labels = "both") +
+   labs(title = "Seasonal plot: Sanitized Cost")
+```
+```{r}
+# seasonal plot for temperature
+gg_season(df, y = tavg, labels = "both") +
+   labs(title = "Seasonal plot: Avgerage daily temperature")
+```
+
+#Looking at Basic Models
+
+Let's follow this article with our data set
+
+
+```{r}
+is.ts(df)
+```
+
+##Avg, Naive, SNaive (seasonal naive(!))
+
+mean =  the forecasts of all future values are equal to the average (or “mean”) of the historical data
+
+naive = the forecasts for every horizon correspond to the last observed value
+
+Seasonal Naive = we set each forecast to be equal to the last observed value from the same season of the year
+
+
+```{r eval = FALSE}
+snaive(
+  df,
+  h = 2 * frequency(x),
+  level = c(80, 95),
+  fan = FALSE,
+  lambda = NULL,
+  biasadj = FALSE,
+  ...,
+  x = y
+)
+```
+
+```{r}
+#Look at just refridgerated trucks with dest IL_CHI
+df_R_IL <- df %>%
+  filter(df$Mode == "R", df$DRegionDAT == "IL_CHI")
+```
+
+
+
+```{r}
+# Set training data from 2017 W01 to 2019 W27
+train_R_IL <- df_R_IL %>%
+  filter_index("2017 W01" ~ "2019 W27")
+```
+
+```{r}
+# Fit the models
+cost_fit <- train_R_IL %>%
+  model(
+    Mean = MEAN(sanitized_cost),
+    `Naïve` = NAIVE(sanitized_cost),
+    `Seasonal naïve` = SNAIVE(sanitized_cost)
+  )
+```
+
+```{r}
+# Generate forecasts for 54 weeks
+cost_fc <- cost_fit %>% forecast(h = 100)
+```
+
+```{r}
+# Plot forecasts against actual values
+cost_fc %>%
+  autoplot(df_R_IL, level = NULL) +
+  labs(
+    y = "Sanitized Cost",
+    title = "Forecasts for weekly cost Refriderated to Chicago"
+  ) +
+  guides(colour = guide_legend(title = "Forecast"))
+
+#mean =  the forecasts of all future values are equal to the average (or “mean”) of the historical data
+
+#naive = the forecasts for every horizon correspond to the last observed value
+
+#Seasonal Naive = we set each forecast to be equal to the last observed value from the same season of the year
+
+  
+```
+
+
+
+```{r}
+# Set training data from 2017 W01 to 2019 W27
+train <- df %>%
+  filter_index("2017 W01" ~ "2019 W27")
+```
+
+```{r}
+# Fit the models
+cost_fit <- train %>%
+  model(
+    Mean = MEAN(sanitized_cost),
+    `Naïve` = NAIVE(sanitized_cost),
+    `Seasonal naïve` = SNAIVE(sanitized_cost)
+  )
+```
+
+```{r}
+# Generate forecasts for 54 weeks
+cost_fc <- cost_fit %>% forecast(h = 100)
+```
+
+```{r}
+# Plot forecasts against actual values
+cost_fc %>%
+  autoplot(df,level = NULL) +
+  labs(
+    y = "Sanitized Cost",
+    title = "Forecasts for weekly cost"
+  )+
+  guides(colour = guide_legend(title = "Forecast"))
+```
+
+
+

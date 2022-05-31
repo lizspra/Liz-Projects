@@ -1,0 +1,68 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+
+#TBATS Model
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(TTR)
+library(imputeTS)
+library(forecast)
+```
+
+
+```{r}
+#read in the interpolated data
+data <- readr::read_csv(file = 'data/data_interpolated_with_economic.csv')
+```
+
+
+```{r}
+# filter to just refridered trucks in CHI
+df_R_IL <- data %>%
+  filter(data$Mode == "R", data$DRegionDAT == "IL_CHI") 
+```
+
+```{r}
+# convert 
+train <- ts(df_R_IL$approx_cost,frequency = 52,start = c(2017,01),end = c(2019,01))
+
+#convert df_R_IL to time series to use autolayer when plotting later
+ts <- ts(df_R_IL$approx_cost,frequency = 52,start = c(2017,01),end = c(2019,52))
+```
+
+```{r}
+#Here we want to use imputeTS. This imputation algorithm fills in all missing values in a time series. 
+train_1= na_interpolation(train)
+```
+
+
+```{r}
+#create tbats model and forecast
+tbats_mod <- tbats(train_1)
+tbats_for = forecast(tbats_mod, h=52)
+
+tbats_mod
+```
+
+```{r}
+#plot forecast with original data autolayer
+autoplot(tbats_for) + 
+  autolayer(ts, color = "BLACK") +
+  labs(
+    y = "Approximate Cost",
+    title = "Forecasts for weekly cost (CA_FRS to IL_CHI)"
+  )
+```
+

@@ -1,0 +1,90 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+# Pandemic Cross validation of SARIMA
+
+```{r message = FALSE, warning = FALSE}
+# Load packages
+library(plyr)
+library(fpp3)
+library(tsibble)
+library(forecast)
+library(zoo)
+```
+
+```{r}
+#read in the interpolated data
+data_raw <- readr::read_csv(file = 'data/data_interpolated_with_lags.csv') %>%
+  mutate(yw = yearweek(yw)) %>%
+  select(-X1) %>%
+  as_tsibble(key = c(Mode,ORegionDAT, DRegionDAT), index = yw) 
+```
+
+```{r}
+#make raw data into multivariate approx_cost series for just Chicago R
+data_mult <- data_raw %>%
+  filter(Mode =="R", DRegionDAT=="IL_CHI") %>%
+  select(Mode, ORegionDAT, DRegionDAT, yw, approx_cost, tmax_lag_12, tmax_lag_2, prcp_lag_12, prcp_lag_2, diesel_price, new_deaths, pandemic, volume) %>%
+  filter_index(~"2021 W14") %>%
+  drop_na()
+```
+
+```{r}
+#create cross-validation training data - will use with 3 month forecasts
+#stretch into rolling forecasting origin
+data_mult_tr <- data_mult %>%
+  stretch_tsibble(.init = 156, .step = 6) %>%
+  relocate(yw, Mode, ORegionDAT, DRegionDAT, .id)
+tail(data_mult_tr, 200)
+```
+
+```{r}
+#make data for measuring accuracy of forecast
+data_mult_future <- data_raw %>%
+  filter(Mode =="R", DRegionDAT=="IL_CHI") %>%
+  select(Mode, ORegionDAT, DRegionDAT, yw, approx_cost, tmax_lag_12, tmax_lag_2, prcp_lag_12, prcp_lag_2, diesel_price, new_deaths, pandemic, volume) %>%
+  filter_index("2020 W01" ~"2021 W26") %>%
+  drop_na()
+#make forecast external data for sarima forecasting
+data_mult_forecast <- data_mult_future %>%
+  filter_index("2020 W01"~"2021 W26") %>%
+  select(-approx_cost) %>%
+  slide_tsibble(.size = 12, .step = 6) %>%
+  relocate(yw, Mode, ORegionDAT, DRegionDAT, .id)
+tail(data_mult_forecast, 15)
+```
+
+```{r}
+#CROSS VALIDATION ACCURACY
+fc_sarima_pandemic_multivar_step6 = data_mult_tr %>%
+  model(ARIMA(approx_cost ~ tmax_lag_12 + tmax_lag_2 + prcp_lag_12 + prcp_lag_2 + diesel_price + new_deaths + pandemic + volume)) %>%
+  forecast(data_mult_forecast)
+fc_sarima_pandemic_multivar_step6 %>%
+  accuracy(data_mult_future)
+# TRAINING SET ACCURACY
+data_mult %>%
+  model(ARIMA(approx_cost ~ tmax_lag_12 + tmax_lag_2 + prcp_lag_12 + prcp_lag_2 + diesel_price + new_deaths + pandemic + volume)) %>%
+  accuracy()
+```
+
+
+#Plot sarima multivar forecasts and save to a pdf
+```{r}
+fc_sarima_pandemic_multivar_step6
+```
+
+```{r, eval = FALSE}
+plot_list = list()
+for (i in 1:12) {
+  p = autoplot(fc_sarima_pandemic_multivar_step6 %>% filter(.id == i)) + autolayer(data_future, approx_cost, colour = "black")+ylim(0.5,3.5)
+  plot_list[[i]] = p
+}
+# Create pdf where each page is a separate plot.
+pdf("plots/sarima_PANDEMIC_multivar_step6.pdf")
+for (i in 1:12) {
+    print(plot_list[[i]])
+}
+dev.off()
+```

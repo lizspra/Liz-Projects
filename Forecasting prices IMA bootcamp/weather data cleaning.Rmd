@@ -1,0 +1,81 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+Reformatting Phoenix, AZ Weather Data
+
+```{r}
+#load packages
+
+library(readr)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(tsibble)
+```
+
+
+```{r}
+raw_data <- read_csv(file= 'data/AZ_PHO_weather_raw.csv')
+tail(raw_data)
+```
+```{r}
+tail(raw_data)
+colnames(raw_data)
+```
+```{r}
+#plot
+ggplot(raw_data, aes(x = DATE, y = TMAX, color = NAME)) +
+  geom_point()
+```
+
+```{r}
+station_data <- raw_data %>%
+  filter(STATION == "USC00028499") %>%
+  select(DATE, PRCP, TMAX)
+
+head(station_data)
+dim(station_data)
+```
+
+
+```{r}
+# create a yearweek column
+data_yw <- station_data %>%
+  mutate(yw = yearweek(DATE))
+
+data_yw
+```
+```{r}
+data_yw <- data_yw %>%
+  filter(DATE != '2017-01-01')
+
+data_yw
+```
+
+
+
+
+```{r}
+
+aggregate_weekly <- data_yw %>%
+  ddply(. (yw), numcolwise(mean, na.rm=TRUE)) %>%
+  as_tsibble(index = yw)
+
+aggregate_weekly
+```
+```{r}
+final_data <- aggregate_weekly %>% mutate(ORegionDAT = "AZ_PHO")
+
+final_data
+```
+
+
+```{r}
+write.csv(final_data, "data/AZ_PHO_weather.csv")
+```
+
+
+
+

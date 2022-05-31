@@ -1,0 +1,156 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+#STL
+
+Seasonal Decomposition of Time Series
+
+“Seasonal and Trend decomposition using Loess”
+
+
+```{r}
+#load packages
+library(readr)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(tsibble)
+library(fable)
+library(zoo)
+library(forecast)
+library(fpp3)
+```
+
+```{r}
+df <- read_csv(file = "data/data_interpolated_with_diesel.csv")
+
+ts <- df %>%
+  mutate(yw = yearweek(yw)) %>%
+  as_tsibble(key = c(Mode,ORegionDAT, DRegionDAT), index = yw) 
+```
+```{r}
+#select diesel prices in just one lane (so it's not repeated)
+
+dieselTS <- ts %>% select(diesel_price) %>% filter(Mode == "R", ORegionDAT == "CA_FRS", DRegionDAT == "IL_CHI")
+
+dieselTS
+```
+```{r}
+#create training set - up through 2020 of the time series
+train <- dieselTS %>% 
+  filter_index(~ "2019 W52")
+```
+
+
+```{r fig.height = 6, fig.width = 10}
+#create and plot STL decompositions of training set
+dcmp <- train %>% model(STL(diesel_price))
+components(dcmp) %>% autoplot()
+```
+
+```{r}
+#fit model
+dcmp <- train %>%
+  model(stlf = decomposition_model(
+    STL(diesel_price),
+    SNAIVE(season_year),
+    ARIMA(season_adjust)
+  ))
+```
+
+
+
+```{r}
+fc <- dcmp %>%
+  forecast(h=26)
+```
+```{r fig.height = 6, fig.width = 10}
+#plot
+fc %>%
+  autoplot(train) +
+  autolayer(dieselTS, colour = "black") +
+  labs(title="STL model with SNAIVE and ARIMA")
+```
+
+
+```{r}
+#create training set - up through 2020 of the time series
+train <- dieselTS %>% 
+  filter_index(~ "2020 W52")
+```
+
+
+```{r fig.height = 6, fig.width = 10}
+#create and plot STL decompositions of training set
+dcmp <- train %>% model(STL(diesel_price))
+components(dcmp) %>% autoplot()
+```
+
+```{r}
+#fit model
+dcmp <- train %>%
+  model(stlf = decomposition_model(
+    STL(diesel_price),
+    SNAIVE(season_year),
+    ARIMA(season_adjust)
+  ))
+```
+
+
+
+```{r}
+fc <- dcmp %>%
+  forecast(h=26)
+```
+```{r fig.height = 6, fig.width = 10}
+#plot
+fc %>%
+  autoplot(train) +
+  autolayer(dieselTS, colour = "black") +
+  labs(title="STL model with SNAIVE and ARIMA")
+```
+
+
+
+
+
+
+```{r}
+#create training set - up through 2020 of the time series
+train <- dieselTS %>% 
+  filter_index(~ "2021 W26")
+```
+
+
+```{r fig.height = 6, fig.width = 10}
+#create and plot STL decompositions of training set
+dcmp <- train %>% model(STL(diesel_price))
+components(dcmp) %>% autoplot()
+```
+
+```{r}
+#fit model
+dcmp <- train %>%
+  model(stlf = decomposition_model(
+    STL(diesel_price),
+    SNAIVE(season_year),
+    ARIMA(season_adjust)
+  ))
+```
+
+
+
+```{r}
+fc <- dcmp %>%
+  forecast(h=26)
+```
+```{r fig.height = 6, fig.width = 10}
+#plot
+fc %>%
+  autoplot(train) +
+  autolayer(dieselTS, colour = "black") +
+  labs(title="STL model with SNAIVE and ARIMA")
+```
+
