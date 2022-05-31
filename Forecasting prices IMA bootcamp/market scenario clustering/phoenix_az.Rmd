@@ -1,0 +1,74 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+# Phoenix market analysis
+
+```{r message = FALSE, warning = FALSE}
+# Load packages
+library(tidyverse)
+library(plyr)
+library(dplyr)
+library(tsibble)
+library(ggplot2)
+library(feasts)
+library(lubridate)
+```
+
+```{r}
+# read data with phoenix -> chicago reefer lane, trucking volume, and yuma weather
+data_raw <- readr::read_csv(file = "data/data_phoenix_with_yuma_weather_and_volume_and_lags.csv")  %>%
+  mutate(yw = yearweek(yw)) %>%
+  select(-X1) %>%
+  as_tsibble(key = c(Mode,ORegionDAT, DRegionDAT), index = yw) %>%
+  relocate(yw, Mode, ORegionDAT, DRegionDAT, approx_cost, approx_vol, tmax, prcp)
+
+data_raw
+```
+
+Plot the cost time series
+```{r}
+#plot actual data values (some are missing)
+ggplot(data_raw, aes(x=yw, y=sanitized_cost))+
+  geom_point()
+#line plot version
+autoplot(data_raw, sanitized_cost)
+
+#plot linearly interpolated data
+autoplot(data_raw, approx_cost)
+
+autoplot(data_raw, approx_cost, color="black", linetype="dotted") + autolayer(data_raw, sanitized_cost, color ="black")
+```
+
+Seasonal plot
+```{r}
+  gg_season(data_raw, approx_cost) +
+  labs(title = "Seasonal plot by year")
+```
+
+
+
+
+I want to plot the cost, precip, temp, and volume data all together to see if I notice any visual patterns. I'll normalize all the values first so that the plot looks alright
+
+Normalize
+```{r}
+scaled_data <- data_raw %>% 
+  mutate_at(c("sanitized_cost", "approx_cost", "approx_vol", "prcp", "tmax"), ~(scale(.) %>% as.vector))
+
+head(scaled_data)
+```
+
+Plot normalized shipping cost (black/grey), precip (blue), tmax (red), and shipping volume (purple).
+
+```{r}
+scaled_data %>%
+ggplot(aes(x=yw)) + 
+  geom_line(aes(y = tmax), color = "red") +
+  geom_line(aes(y = prcp), color = "blue") +
+  #geom_line(aes(y = sanitized_cost), color = "black") +
+  geom_line(aes(y = approx_cost), color = "black") +
+  geom_line(aes(y = approx_vol), color = "purple") +
+  labs(title = "Phoenix -> Chicago Reefer", y= "normalized value")
+```

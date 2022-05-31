@@ -1,0 +1,356 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+PCA and Clustering on lettuce farm and retail prices
+
+```{r message = FALSE, warning = FALSE}
+# Loadpackages
+library(fpp3)
+library(tsibble)
+library(plyr)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+```
+
+```{r}
+# read data with phoenix -> chicago reefer lane, trucking volume, and yuma weather
+data_raw <- readr::read_csv(file = "data/data_phoenix_with_yuma_weather_and_volume_and_lags.csv")  %>%
+  mutate(yw = yearweek(yw)) %>%
+  select(-X1) %>%
+  as_tsibble(key = c(Mode,ORegionDAT, DRegionDAT), index = yw) %>%
+  relocate(yw, Mode, ORegionDAT, DRegionDAT, approx_cost, approx_vol, tmax, prcp)
+
+data_raw
+```
+
+```{r, warning = FALSE, message = FALSE}
+# Import lettuce data
+lettuce <- readr::read_csv(file = 'data/lettuce_wholesale/all_lettuce.csv') %>%
+  dplyr::select(-X1) %>%
+  mutate(yw = yearweek(yw)) %>%
+  relocate(commodity,yw)%>%
+  as_tsibble(key = commodity,
+             index = yw)
+
+romaine <- lettuce %>% filter(commodity=="RO")
+iceberg <- lettuce %>% filter(commodity=="IC")
+green_leaf <- lettuce %>% filter(commodity=="GL")
+red_leaf <- lettuce %>% filter(commodity=="RL")
+
+print(head(romaine))
+```
+
+Visualize what the 4 lettuce price series look like.
+```{r}
+#visualize farm prices
+autoplot(romaine, farm_price, color = "black") +
+  autolayer(iceberg, farm_price, color="purple") +
+  autolayer(green_leaf, farm_price, color="green") +
+  autolayer(red_leaf, farm_price, color="red") +
+  autolayer(data_raw %>% filter_index(~"2019 W26"), approx_cost, color="black", linetype="dotted") + 
+  autolayer(data_raw %>% filter_index(~"2019 W26"), sanitized_cost, color ="black")
+
+#visualize chciago retail prices
+autoplot(romaine, chicago_retail, color = "black") +
+  autolayer(iceberg, chicago_retail, color="purple") +
+  autolayer(green_leaf, chicago_retail, color="green") +
+  autolayer(red_leaf, chicago_retail, color="red")
+```
+Get data into right format for PCA and clustering
+```{r}
+romaine_clust <- as_tibble(romaine) %>%
+  mutate(ro_farm_price = farm_price, ro_chicago_retail = chicago_retail) %>%
+  select(yw, ro_farm_price, ro_chicago_retail) 
+
+iceberg_clust <- as_tibble(iceberg) %>%
+  mutate(ic_farm_price = farm_price, ic_chicago_retail = chicago_retail) %>%
+  select(yw, ic_farm_price, ic_chicago_retail)
+
+green_leaf_clust <- as_tibble(green_leaf) %>%
+  mutate(gl_farm_price = farm_price, gl_chicago_retail = chicago_retail) %>%
+  select(yw, gl_farm_price, gl_chicago_retail)
+
+red_leaf_clust <- as_tibble(red_leaf) %>%
+  mutate(rl_farm_price = farm_price, rl_chicago_retail = chicago_retail) %>%
+  select(yw, rl_farm_price, rl_chicago_retail)
+
+data2 <- join(romaine_clust, iceberg_clust, by = "yw", type = "full")
+data3 <- join(data2, green_leaf_clust, by = "yw", type = "full")
+data <- join(data3, red_leaf_clust, by = "yw", type = "full")
+
+
+row.names(data) <- as.character(data$yw)
+  
+data <- data %>% 
+  select(-yw)
+
+data
+```
+Green leaf farm and retail prices actually have a lot of missing values in 2018. Rather than trying to interpolate, I'm goign to just drop those columns. Green leaf and red leaf prices look closely correlated, so the PCA would essentially take one out anyways.
+
+There is at the end of 2017 a big spike in green leaf farm, not reflected in red leaf farm. Also in the middle of 2018 a big spike in red leaf retail not reflected in green leaf retail. Not sure what that's about. But again, I'm jsut dorpping green leaf data for the rest of this analysis
+
+```{r}
+data <- data %>% 
+  select(-gl_farm_price, -gl_chicago_retail)
+
+```
+
+
+
+Interactive visualizations to play around with to see how the prices of different lettuce types relate to each other.
+
+```{r}
+library(plotly) 
+```
+
+```{r}
+data_plot <- data%>%mutate(yw = row.names(data))
+
+data_plot
+
+p <- ggplot(data_plot, aes(x=log(ro_farm_price), y=log(rl_farm_price), 
+                       color = format(as.Date(yearweek(yw)),format = "%Y"), 
+                       text=yw)) +
+  geom_point(alpha=0.75)
+
+#ggplotly(p, tooltip="yw")
+```
+
+library for PCA and clustering visualizations to come.
+```{r}
+library(factoextra)
+```
+
+
+# PCA
+
+There are still a few sporadic na values in the data. There's not many, so I will drop those rows.
+```{r}
+#drop rows containing any NA values
+data_drop_na <- drop_na(data)
+```
+
+```{r}
+#compute PCA
+pca <- prcomp(data_drop_na, scale = TRUE)
+
+#visualize eigenvalues
+fviz_eig(pca)
+
+#graph of observations
+fviz_pca_ind(pca,
+             col.ind = "cos2", # Color by the quality of representation
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+             )
+
+#graph of variables
+fviz_pca_var(pca,
+             col.var = "contrib", # Color by contributions to the PC
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+             )
+
+#biplot of observations and variables
+fviz_pca_biplot(pca, repel = TRUE,
+                col.var = "#2E9FDF", # Variables color
+                col.ind = "#696969"  # Individuals color
+                )
+```
+Scree plot suggests we should keep the first 3 dimensions of the PCA - because there is an "elbow" in the scree plot there, and also because the first 3 components added up explain about 85% of the total variance.
+
+I think maybe we should do 4 because it makes intuitive sense to me. The market is different for romaine/non-romaine lettuces during e. coli outbreaks, so we should need 4 dims to describe retail/farm prics for romainee/non-romaine lettuces.
+
+```{r}
+# First 4 principal components
+comps <- data.frame(pca$x[,1:4])
+```
+
+We can make a cool 3D interactive plot
+```{r}
+#library(rgl)
+# 3D plot (window pops out)
+
+#plot3d(comps$PC1, comps$PC2, comps$PC3)
+```
+
+# K-Means clustering
+```{r}
+# Determine number of clusters
+wss <- (nrow(comps)-1)*sum(apply(comps,2,var))
+for (i in 2:15) wss[i] <- sum(kmeans(comps, 
+                                     nstart = 25, 
+                                     iter.max=1000,
+                                     centers=i)$withinss)
+plot(1:15, wss, type="b", xlab="Number of Clusters",
+     ylab="Within groups sum of squares")
+```
+I don't see an obvious elbow bend in the plot, so it's not clear to me how many clusters to do. I'll try a few possibilities. 
+
+First, I'll do 2 clusters.
+
+```{r}
+set.seed(123) # set seed for reproducibility
+
+#do the clustering
+compsk2 <- kmeans(comps, 2, nstart = 25, iter.max=1000)
+
+# 3D plot
+#plot3d(comps$PC1, comps$PC2, comps$PC3, col=compsk2$clust)
+```
+
+```{r}
+# Cluster sizes
+sort(table(compsk2$clust))
+clust <- names(sort(table(compsk2$clust)))
+# First cluster
+cluster1_of_2 = row.names(data[compsk2$clust==clust[1],])
+# Second Cluster
+cluster2_of_2 = row.names(data[compsk2$clust==clust[2],])
+
+# cluster members
+cluster1_of_2
+```
+
+So 2017 W12-16 and 2018 W45-46 were picked out as one cluster. Everything else was the other cluster.
+
+```{r}
+#visualize the clusters on a timeline
+
+cluster1_of_2_df = data.frame(cluster1_of_2) %>%
+  rename(yw = cluster1_of_2) %>%
+  mutate(yw = yearweek(yw)) %>%
+  mutate(cluster = 1)
+
+cluster2_of_2_df = data.frame(cluster2_of_2) %>%
+  rename(yw = cluster2_of_2) %>%
+  mutate(yw = yearweek(yw)) %>%
+  mutate(cluster = 2)
+
+clusterk2_df = join(cluster1_of_2_df, cluster2_of_2_df, type="full") %>%
+  mutate(cluster = as.character(cluster)) %>%
+  as_tsibble(index = yw)
+
+ggplot(clusterk2_df, aes(x=yw, y=0, color = cluster)) + geom_point()
+
+unique(clusterk2_df$cluster)
+```
+
+
+Next, let's try 3 clusters.
+```{r}
+set.seed(123) # set seed for reproducibility
+
+#do the clustering
+compsk3 <- kmeans(comps, 3, nstart = 25, iter.max=1000)
+
+# 3D plot
+#plot3d(comps$PC1, comps$PC2, comps$PC3, col=compsk3$clust)
+```
+
+```{r}
+# Cluster sizes
+sort(table(compsk3$clust))
+clust <- names(sort(table(compsk3$clust)))
+# First cluster
+cluster1_of_3 = row.names(data[compsk3$clust==clust[1],])
+# Second Cluster
+cluster2_of_3 = row.names(data[compsk3$clust==clust[2],])
+# Third Cluster
+cluster3_of_3 = row.names(data[compsk3$clust==clust[3],])
+```
+
+```{r fig.height=0.5, fig.width=3}
+#visualize the clusters on a timeline
+
+cluster1_of_3_df = data.frame(cluster1_of_3) %>%
+  rename(yw = cluster1_of_3) %>%
+  mutate(yw = yearweek(yw)) %>%
+  mutate(cluster = 1)
+
+cluster2_of_3_df = data.frame(cluster2_of_3) %>%
+  rename(yw = cluster2_of_3) %>%
+  mutate(yw = yearweek(yw)) %>%
+  mutate(cluster = 2)
+
+cluster3_of_3_df = data.frame(cluster3_of_3) %>%
+  rename(yw = cluster3_of_3) %>%
+  mutate(yw = yearweek(yw)) %>%
+  mutate(cluster = 3)
+
+clusterk3_df_temp = join(cluster1_of_3_df, cluster2_of_3_df, type="full")
+clusterk3_df = join(clusterk3_df_temp, cluster3_of_3_df, type = "full") %>%
+  mutate(cluster = as.character(cluster)) %>%
+  as_tsibble(index = yw)
+
+ggplot(clusterk3_df) + geom_point(aes(x=yw, y=0, color = cluster))
+```
+Next, let's try 5 clusters.
+```{r}
+set.seed(123) # set seed for reproducibility
+
+#do the clustering
+compsk4 <- kmeans(comps, 5, nstart = 25, iter.max=1000)
+
+# 3D plot
+#plot3d(comps$PC1, comps$PC2, comps$PC3, col=compsk4$clust)
+```
+
+```{r}
+# Cluster sizes
+sort(table(compsk4$clust))
+clust <- names(sort(table(compsk4$clust)))
+# First cluster
+cluster1_of_4 = row.names(data[compsk4$clust==clust[1],])
+# Second Cluster
+cluster2_of_4 = row.names(data[compsk4$clust==clust[2],])
+# Third Cluster
+cluster3_of_4 = row.names(data[compsk4$clust==clust[3],])
+# Fourth Cluster
+cluster4_of_4 = row.names(data[compsk4$clust==clust[4],])
+# Fifth Cluster
+cluster5_of_4 = row.names(data[compsk4$clust==clust[5],])
+```
+
+```{r fig.height=0.5, fig.width=3}
+#visualize the clusters on a timeline
+
+cluster1_of_4_df = data.frame(cluster1_of_4) %>%
+  rename(yw = cluster1_of_4) %>%
+  mutate(yw = yearweek(yw)) %>%
+  mutate(cluster = 1)
+
+cluster2_of_4_df = data.frame(cluster2_of_4) %>%
+  rename(yw = cluster2_of_4) %>%
+  mutate(yw = yearweek(yw)) %>%
+  mutate(cluster = 2)
+
+cluster3_of_4_df = data.frame(cluster3_of_4) %>%
+  rename(yw = cluster3_of_4) %>%
+  mutate(yw = yearweek(yw)) %>%
+  mutate(cluster = 3)
+
+cluster4_of_4_df = data.frame(cluster4_of_4) %>%
+  rename(yw = cluster4_of_4) %>%
+  mutate(yw = yearweek(yw)) %>%
+  mutate(cluster = 4)
+
+cluster5_of_4_df = data.frame(cluster5_of_4) %>%
+  rename(yw = cluster5_of_4) %>%
+  mutate(yw = yearweek(yw)) %>%
+  mutate(cluster = 5)
+
+clusterk4_df_temp = join(cluster1_of_4_df, cluster2_of_4_df, type="full")
+clusterk4_df_temp_2 = join(clusterk4_df_temp, cluster3_of_4_df, type="full")
+clusterk4_df_temp_3 = join(clusterk4_df_temp_2, cluster4_of_4_df, type="full")
+clusterk4_df = join(clusterk4_df_temp_3, cluster5_of_4_df, type = "full") %>%
+  mutate(cluster = as.character(cluster)) %>%
+  as_tsibble(index = yw)
+
+ggplot(clusterk4_df) + geom_point(aes(x=yw, y=0, color = cluster))
+```
+

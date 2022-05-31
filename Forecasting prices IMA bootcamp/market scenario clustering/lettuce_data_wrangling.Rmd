@@ -1,0 +1,174 @@
+```{r message = FALSE, warning = FALSE}
+# Load packages
+library(plyr)
+library(fpp3)
+library(tsibble)
+library(forecast)
+library(zoo)
+library(plyr)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(quantmod)
+library(janitor)
+library(lubridate)
+```
+
+```{r, warning = FALSE, message = FALSE}
+# Import phoenix->chicago reefer lane with yuma weather, volume, and lags
+shipping <- readr::read_csv(file = 'data/data_phoenix_with_yuma_weather_and_volume_and_lags.csv') %>%
+  dplyr::select(-X1) %>%
+  relocate(yw, Mode, ORegionDAT, DRegionDAT, approx_cost)
+```
+
+```{r}
+# #Import lettuce price spreadsheets for iceberg, green leaf, red leaf, and romaine
+# iceberg <- readr::read_csv(file = 'data/lettuce_wholesale/iceberg_prices.csv') %>%
+#   clean_names() %>%
+#   select(record_date, farm_price, chicago_retail) %>%
+#   dplyr::rename(yw = record_date,
+#          iceberg_farm = farm_price,
+#          iceberg_retail = chicago_retail) %>%
+#   mutate(yw = yearweek(yw))
+# 
+# green_leaf <- readr::read_csv(file = 'data/lettuce_wholesale/green_leaf_prices.csv') %>%
+#   clean_names() %>%
+#   select(record_date, farm_price, chicago_retail) %>%
+#   dplyr::rename(yw = record_date,
+#          green_leaf_farm = farm_price,
+#          green_leaf_retail = chicago_retail) %>%
+#   mutate(yw = yearweek(yw))
+# 
+# red_leaf <- readr::read_csv(file = 'data/lettuce_wholesale/red_leaf_prices.csv') %>%
+#   clean_names() %>%
+#   select(record_date, farm_price, chicago_retail) %>%
+#   dplyr::rename(yw = record_date,
+#          red_leaf_farm = farm_price,
+#          red_leaf_retail = chicago_retail) %>%
+#   mutate(yw = yearweek(yw))
+# 
+# romaine <- readr::read_csv(file = 'data/lettuce_wholesale/romaine_prices.csv') %>%
+#   clean_names() %>%
+#   select(record_date, farm_price, chicago_retail) %>%
+#   dplyr::rename(yw = record_date,
+#          romaine_farm = farm_price,
+#          romaine_retail = chicago_retail) %>%
+#   mutate(yw = yearweek(yw))
+#   
+# iceberg
+# green_leaf
+# red_leaf
+# romaine
+```
+
+
+```{r}
+#define function for converting format of price columns
+#the input chr should be in a form like "$1.23" The output would be "1.23"
+
+convert_price <- function(chr){ 
+  output = sub('.', '', chr) #remove first character
+  return(output)
+}
+
+#test case
+test_price = convert_price("$1.23")
+test_price
+```
+
+
+```{r}
+#Import lettuce price spreadsheets for iceberg, green leaf, red leaf, and romaine
+iceberg <- readr::read_csv(file = 'data/lettuce_wholesale/iceberg_prices.csv') %>%
+  clean_names() %>%
+  select(commodity, record_date, farm_price, chicago_retail) %>%
+  mutate(yw = yearweek(record_date)) %>%
+  mutate(commodity = "IC")%>%
+  select(-record_date) %>%
+  mutate(farm_price = as.numeric(modify(farm_price, convert_price)), chicago_retail = as.numeric(modify(chicago_retail, convert_price)))
+
+green_leaf <- readr::read_csv(file = 'data/lettuce_wholesale/green_leaf_prices.csv') %>%
+  clean_names() %>%
+  select(commodity, record_date, farm_price, chicago_retail) %>%
+  mutate(yw = yearweek(record_date)) %>%
+  mutate(commodity = "GL")%>%
+  select(-record_date)%>%
+  mutate(farm_price = as.numeric(modify(farm_price, convert_price)), chicago_retail = as.numeric(modify(chicago_retail, convert_price)))
+
+red_leaf <- readr::read_csv(file = 'data/lettuce_wholesale/red_leaf_prices.csv') %>%
+  clean_names() %>%
+  select(commodity, record_date, farm_price, chicago_retail) %>%
+  mutate(yw = yearweek(record_date)) %>%
+  mutate(commodity = "RL")%>%
+  select(-record_date)%>%
+  mutate(farm_price = as.numeric(modify(farm_price, convert_price)), chicago_retail = as.numeric(modify(chicago_retail, convert_price)))
+
+romaine <- readr::read_csv(file = 'data/lettuce_wholesale/romaine_prices.csv') %>%
+  clean_names() %>%
+  select(commodity, record_date, farm_price, chicago_retail) %>%
+  mutate(yw = yearweek(record_date)) %>%
+  mutate(commodity = "RO")%>%
+  select(-record_date)%>%
+  mutate(farm_price = as.numeric(modify(farm_price, convert_price)), chicago_retail = as.numeric(modify(chicago_retail, convert_price)))
+  
+iceberg
+green_leaf
+red_leaf
+romaine
+```
+
+```{r}
+#check for duplicates
+duplicates(iceberg, key = commodity, index = yw)
+duplicates(red_leaf, key = commodity, index = yw)
+duplicates(green_leaf, key = commodity, index = yw)
+duplicates(romaine, key = commodity, index = yw)
+
+#aggregate the duplicates by averaging
+green_leaf_duplicates_removed = plyr::ddply(green_leaf, .(commodity, yw), numcolwise(mean))
+
+green_leaf
+green_leaf_duplicates_removed
+duplicates(green_leaf_duplicates_removed, key = commodity, index = yw)
+```
+
+
+```{r}
+#join lettuce data together
+two_lettuce <- join(iceberg, green_leaf_duplicates_removed, type = "full", match = "all")
+three_lettuce <- join(two_lettuce, red_leaf, type = "full", match = "all")
+all_lettuce <- join(three_lettuce, romaine, type = "full", match = "all")
+
+all_lettuce <- all_lettuce %>%
+  as_tsibble(key = commodity,
+             index = yw) %>%
+  fill_gaps(.full= TRUE) %>%
+  filter_index("2017 W01" ~ "2019 W20") #remove anything before 2017
+
+all_lettuce
+
+unique(all_lettuce$commodity)
+```
+
+
+```{r}
+#visualization
+autoplot(all_lettuce, farm_price)
+autoplot(all_lettuce, chicago_retail)
+```
+```{r}
+gg_season(all_lettuce, farm_price)
+gg_season(all_lettuce, chicago_retail)
+```
+
+```{r}
+#write to csv
+write.csv(all_lettuce, "data/lettuce_wholesale/all_lettuce.csv")
+```
+
+
+
+
+
+
+  fill_gaps(.full= TRUE)

@@ -1,0 +1,304 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+# Cross validation
+
+```{r message = FALSE, warning = FALSE}
+# Load packages
+library(plyr)
+library(fpp3)
+library(tsibble)
+library(forecast)
+library(zoo)
+```
+
+
+```{r}
+#read in the interpolated data
+data_raw <- readr::read_csv(file = 'data/data_phoenix_with_yuma_weather_and_volume_and_lags_and_market_dummies_with_fake_future_dummies.csv') %>%
+  mutate(yw = yearweek(yw)) %>%
+  select(-X1) %>%
+  as_tsibble(key = c(Mode,ORegionDAT, DRegionDAT), index = yw) %>%
+  relocate(yw, cluster_1, cluster_2, cluster_3)
+
+data_raw
+```
+
+#Univariate Cross Validation
+```{r}
+#make into univariate approx_cost series
+data <- data_raw %>%
+  select(yw, approx_cost) %>%
+  filter_index(~"2019 W20") %>%
+  drop_na()
+
+#will test accuracy of cross validation forecast on this
+data_future <- data_raw %>%
+  select(yw, approx_cost) %>%
+  filter_index(~"2019 W32") %>%
+  drop_na()
+```
+
+```{r}
+#create cross-validation training data - will use with 3 month forecasts
+data_tr <- data %>%
+  stretch_tsibble(.init = 105, .step = 1) %>%
+  relocate(yw, .id)
+data_tr
+```
+
+```{r}
+#SNaive
+
+# TSCV accuracy
+data_tr %>%
+  model(SNAIVE(approx_cost)) %>%
+  forecast(h = 12) %>%
+  accuracy(data_future)
+
+# Training set accuracy
+data %>%
+  model(SNAIVE(approx_cost)) %>%
+  accuracy()
+```
+
+```{r warning = FALSE, message = FALSE}
+#STL with ETS
+
+# TSCV accuracy
+stl_univ_fc <- data_tr %>%
+  model(stlf = decomposition_model(
+    STL(approx_cost),
+    SNAIVE(season_year),
+    ETS(season_adjust)
+  )) %>%
+  forecast(h = 12) 
+
+stl_univ_fc %>%
+  accuracy(data_future)
+
+# Training set accuracy
+data %>%
+  model(stlf = decomposition_model(
+    STL(approx_cost),
+    SNAIVE(season_year),
+    ETS(season_adjust)
+  )) %>%
+  accuracy()
+```
+
+#Plot sarima univar forecasts and save to a pdf
+
+```{r}
+n = length(unique(stl_univ_fc$.id))
+
+plot_list = list()
+
+for (i in 1:n) {
+  p = autoplot(stl_univ_fc %>% filter(.id == i)) + autolayer(data_future, approx_cost, colour = "black")+ylim(0.5,3.5)
+  plot_list[[i]] = p
+}
+
+# Create pdf where each page is a separate plot.
+pdf("plots/stl_PHO_univ.pdf")
+for (i in 1:n) {
+    print(plot_list[[i]])
+}
+dev.off()
+```
+
+
+```{r}
+#SARIMA
+
+# TSCV accuracy
+sarima_univ_fc <- data_tr %>%
+  model(ARIMA(approx_cost)) %>%
+  forecast(h = 12)
+
+sarima_univ_fc %>%
+  accuracy(data_future)
+
+# Training set accuracy
+data %>%
+  model(ARIMA(approx_cost)) %>%
+  accuracy()
+```
+
+#Plot sarima univar forecasts and save to a pdf
+
+```{r}
+n = length(unique(sarima_univ_fc$.id))
+
+plot_list = list()
+
+for (i in 1:n) {
+  p = autoplot(sarima_univ_fc %>% filter(.id == i)) + autolayer(data_future, approx_cost, colour = "black")+ylim(0.5,3.5)
+  plot_list[[i]] = p
+}
+
+# Create pdf where each page is a separate plot.
+pdf("plots/sarima_PHO_univ.pdf")
+for (i in 1:n) {
+    print(plot_list[[i]])
+}
+dev.off()
+```
+
+
+
+# MULTIVARIATE SARIMA
+
+# regressors: cluster_1, cluster_2
+
+```{r}
+#make raw data into multivariate series
+data_mult <- data_raw %>%
+  select(yw, approx_cost, cluster_1, cluster_2, cluster_3) %>%
+  filter_index(~"2019 W20") %>%
+  drop_na()
+```
+
+```{r}
+#create cross-validation training data - will use with 3 month forecasts
+
+#stretch into rolling forecasting origin
+data_mult_tr <- data_mult %>%
+  stretch_tsibble(.init = 105, .step = 1) %>%
+  relocate(yw, .id, approx_cost, cluster_1, cluster_2, cluster_3)
+head(data_mult_tr)
+```
+
+```{r}
+#make data for measuring accuracy of forecast
+data_mult_future <- data_raw %>%
+  select(yw, approx_cost, cluster_1, cluster_2, cluster_3) %>%
+  filter_index("2019 W02" ~ "2019 W32")
+
+#make forecast external data for sarima forecasting
+data_mult_forecast <- data_mult_future %>%
+  filter_index("2019 W02" ~ "2019 W32") %>%
+  select(-approx_cost) %>%
+  slide_tsibble(.size = 12, .step = 1)
+
+
+data_mult_forecast
+```
+
+```{r}
+#CROSS VALIDATION FOR SARIMA WITH EXTERNAL
+
+# TSCV accuracy
+
+sarima_multiv_fc = data_mult_tr %>%
+  model(ARIMA(approx_cost ~ cluster_1+cluster_2)) %>%
+  forecast(data_mult_forecast)
+
+sarima_multiv_fc %>%
+  accuracy(data_mult_future)
+
+# Training set accuracy
+data_mult %>%
+  model(ARIMA(approx_cost ~ cluster_1 + cluster_2)) %>%
+  accuracy()
+```
+
+```{r}
+#Plot forecasts and save to a pdf
+n = length(unique(sarima_multiv_fc$.id))
+
+plot_list = list()
+
+for (i in 1:n) {
+  p = autoplot(sarima_multiv_fc %>% filter(.id == i)) + autolayer(data_future, approx_cost, colour = "black")+
+    ylim(0.5,3.5)+
+    labs(title = "SARIMA on PHO->CHI, R with market cluster dummies")
+  plot_list[[i]] = p
+}
+
+# Create pdf where each page is a separate plot.
+pdf("plots/sarima_PHO_with_dummies.pdf")
+for (i in 1:n) {
+    print(plot_list[[i]])
+}
+dev.off()
+```
+
+# regressors: prcp, tmax, diesel_price
+
+```{r}
+#make raw data into multivariate series
+data_mult <- data_raw %>%
+  select(yw, approx_cost, prcp, tmax, diesel_price) %>%
+  filter_index(~"2019 W20") %>%
+  drop_na()
+```
+
+```{r}
+#create cross-validation training data - will use with 3 month forecasts
+
+#stretch into rolling forecasting origin
+data_mult_tr <- data_mult %>%
+  stretch_tsibble(.init = 105, .step = 1) %>%
+  relocate(yw, .id, approx_cost, prcp, tmax, diesel_price)
+head(data_mult_tr)
+```
+
+```{r}
+#make data for measuring accuracy of forecast
+data_mult_future <- data_raw %>%
+  select(yw, approx_cost, prcp, tmax, diesel_price) %>%
+  filter_index("2019 W02" ~ "2019 W32")
+
+#make forecast external data for sarima forecasting
+data_mult_forecast <- data_mult_future %>%
+  filter_index("2019 W02" ~ "2019 W32") %>%
+  select(-approx_cost) %>%
+  slide_tsibble(.size = 12, .step = 1)
+
+
+data_mult_forecast
+```
+
+```{r}
+#CROSS VALIDATION FOR SARIMA WITH EXTERNAL
+
+# TSCV accuracy
+
+sarima_multiv2_fc = data_mult_tr %>%
+  model(ARIMA(approx_cost ~ prcp+ tmax+ diesel_price)) %>%
+  forecast(data_mult_forecast)
+
+sarima_multiv2_fc %>%
+  accuracy(data_mult_future)
+
+# Training set accuracy
+data_mult %>%
+  model(ARIMA(approx_cost ~ prcp+ tmax+ diesel_price)) %>%
+  accuracy()
+```
+
+```{r}
+#Plot forecasts and save to a pdf
+n = length(unique(sarima_multiv2_fc$.id))
+
+plot_list = list()
+
+for (i in 1:n) {
+  p = autoplot(sarima_multiv2_fc %>% filter(.id == i)) + autolayer(data_future, approx_cost, colour = "black")+
+    ylim(0.5,3.5)+
+    labs(title="SARIMA on PHO->CHI, R with prcp, tmax, diesel_price")
+  plot_list[[i]] = p
+}
+
+# Create pdf where each page is a separate plot.
+pdf("plots/sarima2_PHO_with_dummies.pdf")
+for (i in 1:n) {
+    print(plot_list[[i]])
+}
+dev.off()
+```
+
+
