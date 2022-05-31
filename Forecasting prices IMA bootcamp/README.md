@@ -15,7 +15,7 @@ origin and 12-week forecasts to backtest forecasts against actual cost values.
 
 ### Multivariate models
 
-We selected external regressors (maximum temperture, precipitation, and diesel fuel prices) to incorporate with SARIMA. 
+We selected external regressors (maximum temperture, precipitation, and diesel fuel prices) to incorporate with SARIMA. This data was obtained from public sources, namely https://data.gov/.
 
 ### Market scenario clustering
 
